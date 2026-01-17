@@ -10,18 +10,34 @@ interface Props {
   title: string;
 }
 
+const stringifyMongo = (data: any) => {
+  return JSON.stringify(data, function(key, value) {
+    if (value === null) return value;
+    
+    // Check if the actual value in the parent object is a Date
+    if (this && this[key] instanceof Date) {
+      return this[key].toISOString();
+    }
+    
+    // Handle ObjectId
+    if (value._bsontype === 'ObjectId' || value.constructor?.name === 'ObjectId') {
+      return value.toString();
+    }
+    
+    return value;
+  }, 2);
+};
+
 export default function EditorModal({ isOpen, initialData, onSave, onClose, title }: Props) {
-  // 1. Initialize with empty string or initialData
   const [value, setValue] = useState("");
 
-  // 2. IMPORTANT: Update the editor value whenever initialData changes
   useEffect(() => {
-    if (initialData) {
-      setValue(JSON.stringify(initialData, null, 2));
+    if (initialData && isOpen) {
+      setValue(stringifyMongo(initialData));
     } else {
       setValue("{}");
     }
-  }, [initialData, isOpen]); // Re-run when modal opens or doc changes
+  }, [initialData, isOpen]);
 
   if (!isOpen) return null;
 
@@ -38,7 +54,10 @@ export default function EditorModal({ isOpen, initialData, onSave, onClose, titl
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-6">
       <div className="bg-slate-900 border border-slate-700 w-full max-w-4xl rounded-lg overflow-hidden flex flex-col shadow-2xl">
         <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-900">
-          <h3 className="text-sm font-bold text-white uppercase tracking-wider">{title}</h3>
+          <div className="flex flex-col">
+            <h3 className="text-sm font-bold text-white uppercase tracking-wider">{title}</h3>
+            <span className="text-[10px] text-slate-500">MongoDB Extended JSON Format</span>
+          </div>
           <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors">✕</button>
         </div>
         
@@ -52,22 +71,18 @@ export default function EditorModal({ isOpen, initialData, onSave, onClose, titl
               minimap: { enabled: false }, 
               fontSize: 13,
               formatOnPaste: true,
-              automaticLayout: true
+              automaticLayout: true,
+              scrollBeyondLastLine: false,
+              padding: { top: 10 }
             }}
           />
         </div>
 
         <div className="p-4 bg-slate-900 border-t border-slate-800 flex justify-end gap-3">
-          <button 
-            onClick={onClose} 
-            className="px-4 py-2 text-xs font-bold text-slate-400 hover:text-white transition-colors"
-          >
+          <button onClick={onClose} className="px-4 py-2 text-xs font-bold text-slate-400 hover:text-white transition-colors">
             CANCEL
           </button>
-          <button 
-            onClick={handleSaveInternal}
-            className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded text-xs font-bold shadow-lg transition-all"
-          >
+          <button onClick={handleSaveInternal} className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded text-xs font-bold shadow-lg transition-all active:scale-95">
             SAVE DOCUMENT
           </button>
         </div>

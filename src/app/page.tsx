@@ -189,7 +189,7 @@ export default function Home() {
                   <DocumentRow 
                     key={doc._id.toString()} 
                     doc={doc} 
-                    onEdit={(d) => { setEditingDoc(d); setIsModalOpen(true); }}
+                    onEdit={(d:any) => { setEditingDoc(d); setIsModalOpen(true); }}
                     onDelete={handleDelete}
                   />
                 ))

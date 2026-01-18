@@ -3,48 +3,26 @@ import { NextRequest, NextResponse } from 'next/server';
 import clientPromise from '@/lib/mongodb';
 import { ObjectId } from 'mongodb';
 import { EJSON } from 'bson';
+
 /**
- * Helper to recursively find strings that look like IDs or Dates 
- * and convert them back to BSON types.
+ * Converts plain objects (with $oid, $date) into real BSON types (ObjectId, Date).
+ * This works for ANY field name.
  */
-const prepareForDatabase = (obj: any) => {
-  if (obj === null || typeof obj !== 'object') return obj;
-
-  for (const key in obj) {
-    const value = obj[key];
-
-    // 1. Convert _id or fields ending in 'Id' to ObjectId
-    // Only converts if it's a valid 24-character hex string
-    if ((key === '_id' || key.toLowerCase().endsWith('id')) && typeof value === 'string' && /^[0-9a-fA-F]{24}$/.test(value)) {
-      obj[key] = new ObjectId(value);
-    } 
-    // 2. Convert ISO Date strings back to Date objects
-    else if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(value)) {
-      const date = new Date(value);
-      if (!isNaN(date.getTime())) {
-        obj[key] = date;
-      }
-    } 
-    // 3. Recurse into nested objects or arrays
-    else if (typeof value === 'object') {
-      prepareForDatabase(value);
-    }
-  }
-  return obj;
+const prepareForDatabase = (doc: any) => {
+  if (!doc) return doc;
+  // EJSON.parse converts {"$oid": "..."} into a real ObjectId object
+  // and {"$date": "..."} into a real Date object automatically.
+  return EJSON.parse(JSON.stringify(doc));
 };
-// Helper to convert MongoDB BSON types to plain JSON
+
+/**
+ * Converts BSON types (ObjectId, Date) into Extended JSON format.
+ * This ensures the frontend sees {"$oid": "..."} instead of just a string.
+ */
 const serializeDoc = (doc: any) => {
   if (!doc) return doc;
-  const serialized = { ...doc };
-  if (doc._id) serialized._id = doc._id.toString();
-  
-  // Recursively handle Dates or nested ObjectIds if necessary
-  Object.keys(serialized).forEach(key => {
-    if (serialized[key] instanceof Date) {
-      serialized[key] = serialized[key].toISOString();
-    }
-  });
-  return serialized;
+  // EJSON.serialize keeps the rich types visible to your JSON editor
+  return EJSON.serialize(doc);
 };
 
 export async function GET(req: NextRequest) {
@@ -62,12 +40,12 @@ export async function GET(req: NextRequest) {
     const db = client.db(dbName);
     const collection = db.collection(collectionName);
 
-    // Parse using EJSON to handle {$oid: ...} and {$date: ...}
+    // Parse filter (e.g., {"geolocationStateId": {"$oid": "..."}})
     let query = {};
     try {
       query = EJSON.parse(filterStr); 
     } catch (e) {
-      return NextResponse.json({ error: 'Invalid Extended JSON in Filter' }, { status: 400 });
+      return NextResponse.json({ error: 'Invalid JSON in Filter' }, { status: 400 });
     }
     
     const skip = (page - 1) * limit;
@@ -76,6 +54,7 @@ export async function GET(req: NextRequest) {
       collection.countDocuments(query)
     ]);
 
+    // Serialize so the frontend editor sees the $oid and $date markers
     const safeDocs = docs.map(serializeDoc);
     return NextResponse.json({ docs: safeDocs, total, page, limit });
   } catch (error: any) {
@@ -83,26 +62,21 @@ export async function GET(req: NextRequest) {
   }
 }
 
-
-
-// POST - Create a new document
-// POST - Create one or multiple documents
 export async function POST(req: NextRequest) {
   try {
     const { db, collection, doc } = await req.json();
     const client = await clientPromise;
     const col = client.db(db).collection(collection);
 
-    // Check if the input is an array (Multiple Documents)
+    // Handle Bulk Insertion (Array)
     if (Array.isArray(doc)) {
-      // 1. Clean every document in the array
       const cleanDocs = doc.map((d) => {
         const cleaned = prepareForDatabase(d);
-        if (cleaned._id) delete cleaned._id; // Ensure Mongo generates fresh IDs
+        // If user didn't provide an _id, MongoDB will create it automatically.
+        // If they did provide it (via $oid or string), MongoDB will use it.
         return cleaned;
       });
 
-      // 2. Use insertMany for bulk insertion
       const result = await col.insertMany(cleanDocs);
       return NextResponse.json({ 
         success: true, 
@@ -111,34 +85,45 @@ export async function POST(req: NextRequest) {
       });
     } 
 
-    // Handle Single Document (Original Logic)
+    // Handle Single Document Insertion
     const cleanDoc = prepareForDatabase(doc);
-    if (cleanDoc._id) delete cleanDoc._id;
+
+    // FIX: Only delete _id if it's explicitly null or empty. 
+    // If it exists as an ObjectId or custom string, keep it.
+    if (cleanDoc._id === "" || cleanDoc._id === null) {
+      delete cleanDoc._id;
+    }
 
     const result = await col.insertOne(cleanDoc);
-    return NextResponse.json({ success: true, id: result.insertedId });
+    return NextResponse.json({ 
+      success: true, 
+      id: result.insertedId 
+    });
 
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    // If user provides an _id that already exists, this will catch the "Duplicate Key" error
+    return NextResponse.json({ 
+      error: error.code === 11000 ? "Duplicate ID: This _id already exists." : error.message 
+    }, { status: 500 });
   }
 }
 
-// PUT - Update a document
 export async function PUT(req: NextRequest) {
   try {
     const { db, collection, doc } = await req.json();
     
-    // 1. Extract the ID string before cleaning
-    const idString = doc._id;
-    if (!idString) return NextResponse.json({ error: 'Missing _id' }, { status: 400 });
-
-    // 2. Clean the rest of the document (converts nested IDs/Dates)
+    // Convert the incoming Extended JSON doc into real BSON
     const cleanDoc = prepareForDatabase(doc);
+    
+    // Extract the ID (which is now a real ObjectId thanks to prepareForDatabase)
+    const targetId = cleanDoc._id;
+    if (!targetId) return NextResponse.json({ error: 'Missing _id' }, { status: 400 });
+
     const { _id, ...updateData } = cleanDoc;
 
     const client = await clientPromise;
     const result = await client.db(db).collection(collection).updateOne(
-      { _id: new ObjectId(idString) },
+      { _id: targetId },
       { $set: updateData }
     );
     
@@ -148,7 +133,6 @@ export async function PUT(req: NextRequest) {
   }
 }
 
-// DELETE - Remove a document
 export async function DELETE(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const db = searchParams.get('db');
@@ -159,7 +143,10 @@ export async function DELETE(req: NextRequest) {
 
   try {
     const client = await clientPromise;
-    await client.db(db).collection(collection).deleteOne({ _id: new ObjectId(id) });
+    // Handle if ID is passed as a string or a wrapped object
+    const targetId = id.length === 24 ? new ObjectId(id) : EJSON.parse(id);
+    
+    await client.db(db).collection(collection).deleteOne({ _id: targetId });
     return NextResponse.json({ success: true });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });

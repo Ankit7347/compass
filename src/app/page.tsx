@@ -1,10 +1,12 @@
+// src/app/page.tsx
+
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
 import Sidebar from "@/components/Sidebar";
 import DocumentRow from "@/components/DocumentRow";
 import EditorModal from "@/components/EditorModal";
-import SchemaTable from "@/components/SchemaTable"; // Ensure this component is created
+import SchemaTable from "@/components/SchemaTable"; 
 import { Search, ChevronLeft, ChevronRight, Database, RefreshCw, LayoutList, Microscope } from "lucide-react";
 
 export default function Home() {
@@ -86,30 +88,42 @@ export default function Home() {
     }
   };
 
-  // Handle Delete
-  const handleDelete = async (id: string) => {
+  /**
+   * FIXED: Handle Delete
+   * Extract the string ID from the $oid object before sending to API
+   */
+  const handleDelete = async (idData: any) => {
     if (!activeInfo || !confirm("Delete this document forever?")) return;
+
+    // Extract the raw string ID from the EJSON $oid object
+    const id = idData?.$oid || idData;
+
+    if (!id || typeof id !== 'string') {
+        alert("Invalid ID format for deletion");
+        return;
+    }
 
     const res = await fetch(
       `/api/documents?db=${activeInfo.db}&collection=${activeInfo.coll}&id=${id}`,
       { method: 'DELETE' }
     );
 
-    if (res.ok) fetchDocs();
+    if (res.ok) {
+        fetchDocs();
+    } else {
+        const err = await res.json();
+        alert(`Delete failed: ${err.error}`);
+    }
   };
 
   return (
     <main className="flex h-screen bg-black text-slate-200 overflow-hidden">
-      {/* 1. Left Sidebar */}
       <Sidebar onSelectCollection={(db, coll) => {
-        setActiveTab('documents'); // Reset to documents view on collection change
+        setActiveTab('documents'); 
         fetchDocs(db, coll, 1);
       }} />
 
-      {/* 2. Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0">
-        
-        {/* Header */}
         <header className="h-14 border-b border-slate-800 flex items-center px-6 justify-between bg-slate-900/20">
           <div className="flex items-center gap-2">
             <Database size={16} className="text-blue-500" />
@@ -132,7 +146,6 @@ export default function Home() {
           </button>
         </header>
 
-        {/* Query Bar (Only visible in Documents Tab) */}
         {activeTab === 'documents' && (
           <div className="p-3 bg-slate-900/40 border-b border-slate-800 flex gap-2">
             <div className="flex-1 flex bg-slate-950 border border-slate-700 rounded items-center px-3 focus-within:border-blue-500 transition-colors shadow-inner">
@@ -155,7 +168,6 @@ export default function Home() {
           </div>
         )}
 
-        {/* Tab Switcher */}
         <div className="flex bg-slate-900/10 border-b border-slate-800 px-6">
           <button 
             onClick={() => setActiveTab('documents')}
@@ -175,7 +187,6 @@ export default function Home() {
           </button>
         </div>
 
-        {/* Content Section */}
         <section className="flex-1 overflow-y-auto p-4 bg-slate-950 custom-scrollbar">
           {loading && documents.length === 0 ? (
             <div className="flex flex-col justify-center items-center mt-20 gap-4">
@@ -187,15 +198,16 @@ export default function Home() {
               {documents.length > 0 ? (
                 documents.map((doc) => (
                   <DocumentRow 
-                    key={doc._id.toString()} 
+                    key={doc._id?.$oid || doc._id?.toString() || Math.random().toString()}
                     doc={doc} 
                     onEdit={(d:any) => { setEditingDoc(d); setIsModalOpen(true); }}
-                    onDelete={handleDelete}
+                    // Pass the whole ID object to the handler
+                    onDelete={() => handleDelete(doc._id)}
                   />
                 ))
               ) : (
                 <div className="text-center mt-20 text-slate-600 border border-dashed border-slate-800 py-12 rounded-lg">
-                  <p className="text-sm italic">No documents found. Select a collection or refine your filter.</p>
+                  <p className="text-sm italic">No documents found.</p>
                 </div>
               )}
             </div>
@@ -205,13 +217,12 @@ export default function Home() {
               documents={documents} 
               db={activeInfo?.db} 
               coll={activeInfo?.coll}
-              onSchemaChange={() => fetchDocs()} // Re-fetch data after change
+              onSchemaChange={() => fetchDocs()} 
             />
           </div>
           )}
         </section>
 
-        {/* Footer / Pagination (Only visible in Documents Tab) */}
         {activeTab === 'documents' && (
           <footer className="h-12 border-t border-slate-800 bg-slate-900/20 px-6 flex items-center justify-between">
             <div className="text-[10px] text-slate-500 font-mono uppercase tracking-widest">
@@ -241,7 +252,6 @@ export default function Home() {
         )}
       </div>
 
-      {/* Edit/Insert Modal */}
       <EditorModal 
         isOpen={isModalOpen}
         title={editingDoc?._id ? "Edit Document" : "Insert New Document"}

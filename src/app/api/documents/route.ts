@@ -86,19 +86,38 @@ export async function GET(req: NextRequest) {
 
 
 // POST - Create a new document
+// POST - Create one or multiple documents
 export async function POST(req: NextRequest) {
   try {
     const { db, collection, doc } = await req.json();
     const client = await clientPromise;
-    
-    // Prepare the document: handles nested IDs and Dates
-    const cleanDoc = prepareForDatabase(doc);
+    const col = client.db(db).collection(collection);
 
-    // Remove _id if it's a placeholder so Mongo generates a real one
+    // Check if the input is an array (Multiple Documents)
+    if (Array.isArray(doc)) {
+      // 1. Clean every document in the array
+      const cleanDocs = doc.map((d) => {
+        const cleaned = prepareForDatabase(d);
+        if (cleaned._id) delete cleaned._id; // Ensure Mongo generates fresh IDs
+        return cleaned;
+      });
+
+      // 2. Use insertMany for bulk insertion
+      const result = await col.insertMany(cleanDocs);
+      return NextResponse.json({ 
+        success: true, 
+        insertedCount: result.insertedCount,
+        ids: result.insertedIds 
+      });
+    } 
+
+    // Handle Single Document (Original Logic)
+    const cleanDoc = prepareForDatabase(doc);
     if (cleanDoc._id) delete cleanDoc._id;
 
-    const result = await client.db(db).collection(collection).insertOne(cleanDoc);
+    const result = await col.insertOne(cleanDoc);
     return NextResponse.json({ success: true, id: result.insertedId });
+
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }

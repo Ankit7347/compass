@@ -32,12 +32,16 @@ export default function EditorModal({ isOpen, initialData, onSave, onClose, titl
   const [value, setValue] = useState("");
 
   useEffect(() => {
-    if (initialData && isOpen) {
+  if (isOpen) {
+    if (initialData && Object.keys(initialData).length > 0) {
+      // Editing an existing doc
       setValue(stringifyMongo(initialData));
     } else {
-      setValue("{}");
+      // Creating new: Default to empty object, but user can paste an array []
+      setValue("{\n  \n}");
     }
-  }, [initialData, isOpen]);
+  }
+}, [initialData, isOpen]);
 
   if (!isOpen) return null;
 
@@ -82,8 +86,11 @@ export default function EditorModal({ isOpen, initialData, onSave, onClose, titl
           <button onClick={onClose} className="px-4 py-2 text-xs font-bold text-slate-400 hover:text-white transition-colors">
             CANCEL
           </button>
-          <button onClick={handleSaveInternal} className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded text-xs font-bold shadow-lg transition-all active:scale-95">
-            SAVE DOCUMENT
+          <button 
+            onClick={handleSaveInternal} 
+            className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded text-xs font-bold shadow-lg transition-all active:scale-95"
+          >
+            {value.trim().startsWith('[') ? "INSERT MULTIPLE" : "SAVE DOCUMENT"}
           </button>
         </div>
       </div>

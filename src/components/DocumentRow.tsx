@@ -2,10 +2,31 @@
 import { useState } from 'react';
 import { Edit3, Trash2, ChevronRight, ChevronDown, Code } from 'lucide-react';
 
-export default function DocumentRow({ doc, onEdit, onDelete }: { doc: any, onEdit: any, onDelete: any }) {
-  // Set default to true for expanded view
+// Added a proper Interface for clarity
+interface DocumentRowProps {
+  doc: any;
+  onEdit: (doc: any) => void;
+  onDelete: (id: string) => void;
+}
+
+export default function DocumentRow({ doc, onEdit, onDelete }: DocumentRowProps) {
   const [isExpanded, setIsExpanded] = useState(true); 
   const [viewMode, setViewMode] = useState<'kv' | 'json'>('kv');
+
+  // Unified ID handling: MongoDB uses _id, some APIs use id
+  const documentId = doc._id?.toString() || doc.id?.toString();
+
+  const handleEditClick = (e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent toggling the accordion when clicking edit
+    onEdit(doc);
+  };
+
+  const handleDeleteClick = (e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent toggling the accordion when clicking delete
+    if (confirm("Are you sure you want to delete this document?")) {
+      onDelete(documentId);
+    }
+  };
 
   return (
     <div className="border border-slate-800 bg-slate-900/30 rounded-md mb-2 overflow-hidden hover:border-slate-700 transition-colors">
@@ -17,9 +38,9 @@ export default function DocumentRow({ doc, onEdit, onDelete }: { doc: any, onEdi
         >
           {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
           <span className="text-blue-400 font-mono text-xs font-bold">
-            ID: {doc._id?.toString() || doc.id}
+            ID: {documentId}
           </span>
-          {/* Optional: Show a hint of the name if available */}
+          
           {doc.name?.en && !isExpanded && (
             <span className="text-slate-400 text-xs ml-2 italic">({doc.name.en})</span>
           )}
@@ -27,21 +48,30 @@ export default function DocumentRow({ doc, onEdit, onDelete }: { doc: any, onEdi
         
         <div className="flex gap-2">
           <button 
-            onClick={() => setViewMode(viewMode === 'kv' ? 'json' : 'kv')} 
+            onClick={(e) => {
+              e.stopPropagation();
+              setViewMode(viewMode === 'kv' ? 'json' : 'kv');
+            }} 
             className={`p-1 rounded transition-colors ${viewMode === 'json' ? 'bg-blue-600 text-white' : 'hover:bg-slate-700 text-slate-400'}`} 
             title="Toggle View Mode"
           >
             <Code size={14} />
           </button>
+          
+          {/* EDIT BUTTON */}
           <button 
-            onClick={() => onEdit(doc)}
+            onClick={handleEditClick}
             className="p-1 hover:bg-blue-900/40 rounded text-blue-400"
+            title="Edit Document"
           >
             <Edit3 size={14} />
           </button>
+
+          {/* DELETE BUTTON */}
           <button 
-            onClick={() => onDelete(doc._id || doc.id)} 
+            onClick={handleDeleteClick} 
             className="p-1 hover:bg-red-900/40 rounded text-red-400"
+            title="Delete Document"
           >
             <Trash2 size={14} />
           </button>
